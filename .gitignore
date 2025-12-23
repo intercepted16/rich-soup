@@ -1,0 +1,16 @@
+# Pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+thon-generated files
+__py
+
+.idea/
+.vscode/
+*.log
+tests/test_data/
