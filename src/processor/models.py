@@ -16,17 +16,6 @@ class BlockType(Enum):
 class BlockItem(BaseModel):
     type: BlockType
 
-    def as_subclass(self):
-        match self.type:
-            case BlockType.PARAGRAPH:
-                return ParagraphBlock.model_validate(self)
-            case BlockType.TABLE:
-                return TableBlock.model_validate(self)
-            case BlockType.LIST:
-                return ListBlock.model_validate(self)
-            case _:
-                raise ValueError(f"Unknown block type: {self.type}")
-
 
 class ParagraphBlock(BlockItem):
     type: BlockType = BlockType.PARAGRAPH

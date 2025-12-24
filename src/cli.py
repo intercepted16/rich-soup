@@ -20,14 +20,19 @@ def main():
     from src.blocks import extract_blocks
     from src.processor import parse_blocks
     from src.processor.models import ParagraphBlock
+    from src.common.utils.logger import logger
+
+    logger.info("Starting block extraction...")
 
     block_array = extract_blocks(args.url)
     parsed_block_array = parse_blocks(block_array)
 
     if args.format == "raw":
+        logger.info("Generating raw output...")
         for block in parsed_block_array.blocks:
             print(block)
     else:  # markdown
+        logger.info("Generating markdown output...")
         for block in parsed_block_array.blocks:
             if isinstance(block, ParagraphBlock):
                 if block.is_code:

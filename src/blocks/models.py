@@ -10,7 +10,7 @@ from pydantic import BaseModel
 # Since it doesn't do any processing, it can only output text or stroke; as that is what is necessary for later inference of links, tables, bold, headings, etc.
 class BlockType(Enum):
     TEXT = "text"
-    STROKE = "stroke"
+    IMAGE = "image"
 
 
 BBox: TypeAlias = tuple[float, float, float, float]  # (x0, y0, x1, y1)
@@ -19,14 +19,6 @@ BBox: TypeAlias = tuple[float, float, float, float]  # (x0, y0, x1, y1)
 class Block(BaseModel):
     type: BlockType
     bbox: BBox
-
-    def as_subclass(self):
-        if self.type == BlockType.TEXT:
-            return TextBlock.model_validate(self)
-        elif self.type == BlockType.STROKE:
-            return StrokeBlock.model_validate(self)
-        else:
-            raise ValueError(f"Unknown block type: {self.type}")
 
 
 class TextBlock(Block):
@@ -41,9 +33,14 @@ class TextBlock(Block):
     is_blockquote: bool = False
 
 
-class StrokeBlock(Block):
-    type: BlockType = BlockType.STROKE
-    color: str | None = None
+class ImageBlock(Block):
+    type: BlockType = BlockType.IMAGE
+    src: str  # image source (e.g., base64 or URL)
+
+
+class TableBlock(Block):
+    type: BlockType = BlockType.TEXT
+    rows: list[list[str]]  # 2D list representing table cells
 
 
 class BlockArray(BaseModel):

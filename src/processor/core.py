@@ -7,10 +7,9 @@ from src.blocks.models import (
     BlockArray as RawBlockArray,
 )
 from src.blocks.models import (
-    StrokeBlock as RawStrokeBlock,
-)
-from src.blocks.models import (
     TextBlock as RawTextBlock,
+    TableBlock as RawTableBlock,
+    ImageBlock as RawImageBlock,
 )
 from src.common.utils.statistics import statistics
 from src.processor.models import (
@@ -20,6 +19,8 @@ from src.processor.models import (
     ParagraphBlock,
     TableBlock,
 )
+
+from src.common.utils.logger import logger
 
 BOLD_THRESHOLD = 0.350
 
@@ -153,18 +154,6 @@ def _handle_text_block(
     return result
 
 
-def _handle_stroke_block(block: RawStrokeBlock) -> TableBlock | None:
-    """Handle a raw stroke block.
-
-    Args:
-        block (RawStrokeBlock): The raw stroke block to handle.
-    Returns:
-        TableBlock | None: The processed stroke block or None if not applicable.
-    """
-    # Not implemented yet.
-    return None
-
-
 def parse_blocks(raw_blocks: RawBlockArray) -> BlockArray:
     """Parse raw blocks into clean blocks using many heuristics.
 
@@ -188,6 +177,7 @@ def parse_blocks(raw_blocks: RawBlockArray) -> BlockArray:
         header_threshold = footer_threshold = 0
 
     seen_texts: set[str] = set()
+    text_to_block_index: dict[str, int] = {}  # Maps normalized text to its block index
 
     for rb in raw_blocks.blocks:
         # Skip blocks in extreme header/footer areas
@@ -232,7 +222,9 @@ def parse_blocks(raw_blocks: RawBlockArray) -> BlockArray:
                     normalized = " ".join(pb.text.lower().split())
 
                     if normalized in seen_texts:
-                        continue
+                        # Skip duplicates except for headings
+                        if pb.heading == 0:
+                            continue
 
                     is_duplicate = False
                     for seen in seen_texts:
@@ -241,16 +233,37 @@ def parse_blocks(raw_blocks: RawBlockArray) -> BlockArray:
                             break
 
                     if is_duplicate:
-                        continue
+                        # Don't skip headings even if they're substring duplicates
+                        if pb.heading == 0:
+                            continue
+                        else:
+                            # If this is a heading and there's a paragraph with same text, remove the paragraph
+                            if normalized in text_to_block_index:
+                                idx = text_to_block_index[normalized]
+                                if idx < len(blocks) and blocks[idx].heading == 0:
+                                    del blocks[idx]
+                                    # Adjust indices in text_to_block_index
+                                    for key in text_to_block_index:
+                                        if text_to_block_index[key] > idx:
+                                            text_to_block_index[key] -= 1
 
                     seen_texts.add(normalized)
+                    text_to_block_index[normalized] = len(blocks)
                     blocks.append(pb)
 
-            case RawStrokeBlock():
-                sb = _handle_stroke_block(rb)
-                if sb:
-                    blocks.append(sb)
+            case RawTableBlock():
+                blocks.append(
+                    TableBlock(
+                        rows=rb.rows,
+                    )
+                )
+
+            case RawImageBlock():
+                # TODO: handle images
+                pass
+
             case _:
-                raise ValueError(f"Unknown raw block type: {type(rb)}")
+                logger.warning(f"Unknown block type encountered: {rb}")
+                pass
 
     return BlockArray(url=raw_blocks.url, blocks=blocks)
