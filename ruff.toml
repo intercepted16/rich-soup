@@ -1,0 +1,11 @@
+line-length = 110
+[lint]
+select = ["E", "F", "W", "C", "N", "T", "B"]
+mccabe.max-complexity = 10
+ignore = ["D"]  # no ignored rules
+pydocstyle.convention = "google"
+
+
+[format]
+docstring-code-format = true
+docstring-code-line-length = 110

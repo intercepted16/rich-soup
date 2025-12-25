@@ -1,0 +1,26 @@
+timeout_s = 30
+reading_order_y_tolerance = 5
+default_prefix = "https://"
+bold_threshold = 0.350 # 35% > avg weight -> bold
+header_threshold = 0.02  # Top 2% of page height
+footer_threshold = 0.98  # Bottom 2% of page height (1 - 0.02)
+small_text_threshold = 0.65 # if < 65% of avg font size -> small text, skipped
+header_thresholds = { h1 = 1.5, h2 = 1.25, h3 = 1.1 } # relative to median font size
+skip_patterns = [
+    "from wikipedia",
+    "not to be confused with",
+    "this article is about",
+    "for other uses",
+    "see also:",
+    "main article:",
+    "jump to navigation",
+    "jump to search",
+    "retrieved from",
+    "categories:",
+    "hidden categories:",
+    "view source",
+    "edit this",
+    "cookie policy",
+    "privacy policy",
+    "terms of use",
+]

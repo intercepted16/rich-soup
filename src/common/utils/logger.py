@@ -1,7 +1,7 @@
 import logging
 import sys
 import os
-from typing import Any, Optional
+from typing import Any
 
 NOTICE_LEVEL = 25
 logging.addLevelName(NOTICE_LEVEL, "NOTICE")
@@ -42,7 +42,7 @@ logging.setLoggerClass(CustomLogger)
 LOG_FORMAT = "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
 DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 
-LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../logs")
+LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../../logs")
 os.makedirs(LOG_DIR, exist_ok=True)
 LOG_FILE = os.path.join(LOG_DIR, "app.log")
 
@@ -70,7 +70,7 @@ for noisy in ["httpx", "urllib3", "opensearch"]:
     logging.getLogger(noisy).setLevel(logging.WARNING)
 
 
-def get_logger(name: Optional[str] = None) -> logging.Logger:
+def get_logger(name: str | None = None) -> logging.Logger:
     return logging.getLogger(name or "app")
 
 

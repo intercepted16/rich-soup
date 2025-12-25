@@ -7,13 +7,24 @@ from pydantic import BaseModel
 
 
 # We want to keep block information raw.
-# Since it doesn't do any processing, it can only output text or stroke; as that is what is necessary for later inference of links, tables, bold, headings, etc.
+# Since it doesn't do any processing, it can only output text or stroke; as that is what is necessary for
+# later inference of links, tables, bold, headings, etc.
 class BlockType(Enum):
     TEXT = "text"
+    TABLE = "table"
     IMAGE = "image"
 
 
 BBox: TypeAlias = tuple[float, float, float, float]  # (x0, y0, x1, y1)
+
+
+def bbox_size(bbox: BBox) -> tuple[float, float]:
+    x0, y0, x1, y1 = bbox
+    w = x1 - x0
+    h = y1 - y0
+    if w < 0 or h < 0:
+        raise ValueError(f"Invalid bbox: {bbox}")
+    return w, h
 
 
 class Block(BaseModel):

@@ -1,13 +1,13 @@
 """Quick dirty CLI for testing and stuff."""
 
 import argparse
+from src.common.utils.logger import logger
 
 
 def main():
+    """Main CLI entrypoint."""
     parser = argparse.ArgumentParser(description="Extract blocks from a URL.")
-    parser.add_argument(
-        "--url", required=True, type=str, help="The URL to extract blocks from"
-    )
+    parser.add_argument("--url", required=True, type=str, help="The URL to extract blocks from")
     parser.add_argument(
         "--format",
         type=str,
@@ -17,33 +17,24 @@ def main():
     )
     args = parser.parse_args()
 
-    from src.blocks import extract_blocks
-    from src.processor import parse_blocks
-    from src.processor.models import ParagraphBlock
-    from src.common.utils.logger import logger
+    from src.processor import extract_blocks
 
     logger.info("Starting block extraction...")
 
-    block_array = extract_blocks(args.url)
-    parsed_block_array = parse_blocks(block_array)
+    blocks = extract_blocks(args.url)
 
-    if args.format == "raw":
-        logger.info("Generating raw output...")
-        for block in parsed_block_array.blocks:
-            print(block)
-    else:  # markdown
-        logger.info("Generating markdown output...")
-        for block in parsed_block_array.blocks:
-            if isinstance(block, ParagraphBlock):
-                if block.is_code:
-                    print(f"```\n{block.text}\n```\n")
-                elif block.heading > 0:
-                    prefix = "#" * block.heading
-                    print(f"{prefix} {block.text}\n")
-                elif block.bold:
-                    print(f"**{block.text}**\n")
-                else:
-                    print(f"{block.text}\n")
+    match str(args.format).lower():
+        case "raw":
+            logger.info("Generating raw output...")
+            for block in blocks:
+                logger.info(block)
+
+        case "markdown":
+            logger.info("Generating markdown output...")
+            logger.info("Markdown:\n%s", blocks.markdown)
+
+        case _:
+            logger.error(f"Unknown format: {args.format}")
 
 
 if __name__ == "__main__":

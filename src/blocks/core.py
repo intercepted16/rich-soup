@@ -64,7 +64,7 @@ def _extract_text_blocks(page: Page) -> list[TextBlock]:
         "a",
         "blockquote",
     ]
-    element_data = page.evaluate(
+    element_data: list[dict[str, Any]] = page.evaluate(
         IIFE_WRAPPER.format(
             INTERNAL_SCRIPT_CODE
             + f"\n\nreturn extractTextNodes({json.dumps(selectors)});"
@@ -131,7 +131,7 @@ def _extract_tables(page: Page) -> list[TableBlock]:
         bbox = data["bbox"]
         blocks.append(
             TableBlock(
-                type=BlockType.TEXT,
+                type=BlockType.TABLE,
                 bbox=(
                     bbox["x"],
                     bbox["y"],
@@ -145,7 +145,7 @@ def _extract_tables(page: Page) -> list[TableBlock]:
     return blocks
 
 
-def extract_blocks(url: str) -> BlockArray:
+def extract_raw_blocks(url: str) -> BlockArray:
     """Extract text, images, and table blocks from a URL."""
     blocks: list[Block] = []
     s = ExitStack()
