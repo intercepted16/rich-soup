@@ -28,13 +28,15 @@ class Config(BaseModel):
         "small_text_threshold",
         mode="before",
     )
-    def between_zero_and_one(cls, value: float) -> float:
+    @staticmethod
+    def between_zero_and_one(value: float) -> float:
         if not (0.0 <= value <= 1.0):
             raise ValueError("Value must be between 0 and 1.")
         return value
 
     @field_validator("header_thresholds", mode="before")
-    def str_keys_to_int(cls, v: dict[str, float]) -> dict[int, float]:
+    @staticmethod
+    def str_keys_to_int(v: dict[str, float]) -> dict[int, float]:
         result: dict[int, float] = {}
         for k, val in v.items():
             key_str = str(k).lower()
@@ -64,6 +66,3 @@ def set_config(new_config: Config) -> None:
 
 
 __all__ = ["config", "set_config"]  # allow users to set a new config if needed
-
-if __name__ == "__main__":
-    print(config)

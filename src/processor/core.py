@@ -6,7 +6,10 @@ from src.blocks.models import (
     Block as RawBlock,
     ImageBlock as RawImageBlock,
     TableBlock as RawTableBlock,
+    LinkBlock as RawLinkBlock,
+    ListBlock as RawListBlock,
 )
+from src.common.models import Span
 from src.common.utils.statistics import statistics
 from src.processor.models import (
     BlockItem,
@@ -15,9 +18,12 @@ from src.processor.models import (
     ParsedBlocks,
     TableBlock,
     ImageBlock,
+    LinkBlock,
+    ListBlock,
 )
 from src.common.utils.config import config
 from typing import overload
+from src.processor.post_filters import filter_blocks
 
 
 def compute_page_metrics(raw_blocks: RawBlockArray) -> PageMetrics:
@@ -81,11 +87,47 @@ def _is_text_duplicate(normalized: str, seen_texts: set[str]) -> bool:
 def _hash_table(rows: list[list[str]]) -> str:
     """Create a hash of table content for deduplication."""
     # Normalize and join all table cells into a single string
-    normalized_rows = []
+    normalized_rows: list[str] = []
     for row in rows:
         normalized_row = [" ".join(cell.lower().split()) for cell in row]
         normalized_rows.append("|".join(normalized_row))
     return "\n".join(normalized_rows)
+
+
+def _build_spans_from_text_block(block: RawTextBlock, text: str, metrics: PageMetrics) -> list[Span]:
+    """Build spans from raw text block span data or create a single span."""
+    if block.spans:
+        spans: list[Span] = []
+        for span_data in block.spans:
+            formats: set[str] = set()
+            if span_data.font_weight is not None and span_data.font_weight >= metrics.font_weight.mean * (
+                1 + config.bold_threshold
+            ):
+                formats.add("bold")
+
+            formats.update(span_data.formats)
+
+            spans.append(
+                Span(
+                    text=span_data.text,
+                    formats=formats,
+                    font_size=span_data.font_size,
+                    font_weight=span_data.font_weight,
+                    font_family=span_data.font_family,
+                )
+            )
+        return spans
+    else:
+        bold = block.font_weight >= metrics.font_weight.mean * (1 + config.bold_threshold)
+        return [
+            Span(
+                text=text,
+                formats={"bold"} if bold else {"none"},
+                font_size=block.font_size,
+                font_weight=block.font_weight,
+                font_family=block.font_family,
+            )
+        ]
 
 
 def _handle_text_block(block: RawTextBlock, metrics: PageMetrics) -> list[ParagraphBlock]:
@@ -95,18 +137,16 @@ def _handle_text_block(block: RawTextBlock, metrics: PageMetrics) -> list[Paragr
         return []
 
     if block.is_code:
+        spans = [Span(text=text, formats={"code"})]
         return [
             ParagraphBlock(
-                text=text,
-                bold=False,
-                italic=False,
+                spans=spans,
                 heading=0,
                 is_code=True,
                 bbox=block.bbox,
             )
         ]
 
-    # Split by double newlines for multiple logical paragraphs
     paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
     if not paragraphs:
         return []
@@ -117,21 +157,19 @@ def _handle_text_block(block: RawTextBlock, metrics: PageMetrics) -> list[Paragr
         if not cleaned_text:
             continue
 
-        # Skip small text
         if block.font_size <= metrics.font_size.mean * config.small_text_threshold:
             continue
 
         heading = _determine_heading_level(block, metrics)
-        bold = block.font_weight >= metrics.font_weight.mean * (1 + config.bold_threshold)
 
-        if block.is_blockquote:
-            cleaned_text = f"> {cleaned_text}"
+        spans = _build_spans_from_text_block(block, cleaned_text, metrics)
+
+        if block.is_blockquote and spans:
+            spans[0].text = f"> {spans[0].text}"
 
         result.append(
             ParagraphBlock(
-                text=cleaned_text,
-                bold=bold,
-                italic=False,
+                spans=spans,
                 heading=heading,
                 is_code=False,
                 bbox=block.bbox,
@@ -192,19 +230,22 @@ def _should_skip_paragraph(pb: ParagraphBlock, tracker: _DuplicateTracker) -> bo
 
     normalized = " ".join(pb.text.lower().split())
 
-    # Skip exact duplicates for non-headings
     if tracker.is_duplicate(normalized) and pb.heading == 0:
         return True
 
-    # Handle substring duplicates
     if tracker.is_substring_duplicate(normalized):
         if pb.heading == 0:
             return True
-        # For headings, remove previous non-heading duplicate if exists
         if normalized in tracker.text_to_index:
-            return False  # Will be handled by caller
+            return False
 
     return False
+
+
+def _handle_list_block(block: RawListBlock, metrics: PageMetrics) -> list[list[Span]]:
+    """Convert raw list items into processed list items with styling."""
+    # Items are already properly formatted as list[list[Span]] from extraction
+    return block.items
 
 
 def _process_blocks(
@@ -251,7 +292,7 @@ def _process_blocks(
                 blocks.append(
                     ImageBlock(
                         src=rb.src,
-                        alt="",
+                        alt=rb.alt,
                         dimensions=(round(rb.bbox[2] - rb.bbox[0]), round(rb.bbox[3] - rb.bbox[1])),
                         bbox=rb.bbox,
                     )
@@ -261,12 +302,36 @@ def _process_blocks(
                 if tracker.is_table_duplicate(rb.rows):
                     continue
                 tracker.add_table(rb.rows)
+                rb.rows = [
+                    [cell.replace("\n", " ").strip() for cell in row] for row in rb.rows
+                ]  # line breaks malform tables
                 blocks.append(
                     TableBlock(
                         rows=rb.rows,
                         bbox=rb.bbox,
                     )
                 )
+
+            case RawLinkBlock():
+                blocks.append(
+                    LinkBlock(
+                        href=rb.href,
+                        spans=rb.spans,
+                        bbox=rb.bbox,
+                    )
+                )
+
+            case RawListBlock():
+                items = _handle_list_block(rb, metrics)
+                if items:  # Only add if there are items
+                    blocks.append(
+                        ListBlock(
+                            items=items,
+                            ordered=rb.ordered,
+                            level=rb.level,
+                            bbox=rb.bbox,
+                        )
+                    )
 
             case RawBlock():
                 pass
@@ -328,5 +393,7 @@ def extract_blocks(
 
     # Process all blocks
     blocks = _process_blocks(raw_blocks, metrics, header_threshold, footer_threshold)
+
+    filter_blocks(blocks)
 
     return ParsedBlocks(url=raw_blocks.url, blocks=blocks)

@@ -1,9 +1,10 @@
-"""Models."""
+"""Raw block models for DOM extraction."""
 
 from enum import Enum
-from typing import TypeAlias
 
 from pydantic import BaseModel
+
+from src.common.models import BBox, Span
 
 
 # We want to keep block information raw.
@@ -13,18 +14,8 @@ class BlockType(Enum):
     TEXT = "text"
     TABLE = "table"
     IMAGE = "image"
-
-
-BBox: TypeAlias = tuple[float, float, float, float]  # (x0, y0, x1, y1)
-
-
-def bbox_size(bbox: BBox) -> tuple[float, float]:
-    x0, y0, x1, y1 = bbox
-    w = x1 - x0
-    h = y1 - y0
-    if w < 0 or h < 0:
-        raise ValueError(f"Invalid bbox: {bbox}")
-    return w, h
+    LINK = "link"
+    LIST = "list"
 
 
 class Block(BaseModel):
@@ -35,23 +26,37 @@ class Block(BaseModel):
 class TextBlock(Block):
     type: BlockType = BlockType.TEXT
     text: str
+    spans: list[Span] | None = None  # Style information for text runs
     font_size: float
     font_weight: float
     font_family: str | None = None
     heading_level: int = 0  # 0 = not a heading, 1-6 = h1-h6
     is_code: bool = False
-    is_list: bool = False
     is_blockquote: bool = False
 
 
 class ImageBlock(Block):
     type: BlockType = BlockType.IMAGE
     src: str  # image source (e.g., base64 or URL)
+    alt: str | None = None
 
 
 class TableBlock(Block):
-    type: BlockType = BlockType.TEXT
+    type: BlockType = BlockType.TABLE
     rows: list[list[str]]  # 2D list representing table cells
+
+
+class LinkBlock(Block):
+    type: BlockType = BlockType.LINK
+    href: str  # the URL
+    spans: list[Span]  # the link text with style information
+
+
+class ListBlock(Block):
+    type: BlockType = BlockType.LIST
+    items: list[list[Span]]  # List of items, each item is a list of spans
+    ordered: bool  # True for numbered, False for bulleted
+    level: int = 0  # Nesting level for hierarchical lists
 
 
 class BlockArray(BaseModel):

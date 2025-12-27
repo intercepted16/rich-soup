@@ -1,3 +1,58 @@
+// Helper function to extract spans with style information
+function extractSpans(element) {
+    const spans = [];
+    const walker = document.createTreeWalker(
+        element,
+        NodeFilter.SHOW_TEXT,
+        null,
+        false
+    );
+
+    let node;
+    while (node = walker.nextNode()) {
+        const text = node.textContent.trim();
+        if (!text) continue;
+
+        const parent = node.parentElement;
+        const style = getComputedStyle(parent);
+        const fontWeight = parseFloat(style.fontWeight);
+        const fontSize = parseFloat(style.fontSize);
+        const fontFamily = style.fontFamily;
+
+        // Check for bold/italic in parent element or its ancestors
+        let bold = fontWeight >= 700;
+        let italic = style.fontStyle === 'italic';
+        let code = false;
+
+        // Walk up to check for strong, b, em, i, code tags
+        let ancestor = parent;
+        while (ancestor && ancestor !== element) {
+            const tag = ancestor.tagName?.toUpperCase() || '';
+            if (tag === 'STRONG' || tag === 'B') bold = true;
+            if (tag === 'EM' || tag === 'I') italic = true;
+            if (tag === 'CODE' || tag === 'KBD' || tag === 'SAMP') code = true;
+            ancestor = ancestor.parentElement;
+        }
+
+        spans.push({
+            text: text,
+            formats: (() => {
+                const fmts = new Set();
+                if (bold) fmts.add("bold");
+                if (italic) fmts.add("italic");
+                if (code) fmts.add("code");
+                return fmts;
+            })(),
+            font_size: fontSize,
+            font_weight: fontWeight,
+            font_family: fontFamily
+        });
+    }
+
+    return spans;
+}
+
+
 function extractTextNodes(selectors) {
     const SKIP_TAGS = new Set([
         'SCRIPT','STYLE','NOSCRIPT','IFRAME','SVG','CANVAS',
@@ -20,13 +75,11 @@ function extractTextNodes(selectors) {
     const TABLE_TAGS = new Set(['TABLE','THEAD','TBODY','TFOOT','TR','TD','TH','CAPTION','COL','COLGROUP']);
     const HEADING_TAGS = {'H1':1,'H2':2,'H3':3,'H4':4,'H5':5,'H6':6};
 
+
+
     const elements = document.querySelectorAll(selectors.join(','));
     const blocks = [];
     const extractedTexts = [];
-
-    let listAccumulator = [];
-    let listBBox = null;
-    let listFontSize = 0, listFontWeight = 0, listFontFamily = null, listHeadingLevel = 0;
 
     elements.forEach(el => {
         const tagName = el.tagName?.toUpperCase() || '';
@@ -84,53 +137,63 @@ function extractTextNodes(selectors) {
             blocks.splice(idx,1);
         });
 
-        // Handle list items
-        if(['LI','DT','DD'].includes(tagName)){
-            const prefix = tagName==='LI'?'-':'*';
-            listAccumulator.push(`${prefix} ${text}`);
-            if(!listBBox){
-                listBBox=bbox; listFontSize=fontSize; listFontWeight=fontWeight;
-                listFontFamily=fontFamily; listHeadingLevel=headingLevel;
-            } else {
-                const x0 = Math.min(listBBox.x,bbox.x);
-                const y0 = Math.min(listBBox.y,bbox.y);
-                const x1 = Math.max(listBBox.x+listBBox.width,bbox.x+bbox.width);
-                const y1 = Math.max(listBBox.y+listBBox.height,bbox.y+bbox.height);
-                listBBox={x:x0,y:y0,width:x1-x0,height:y1-y0};
-            }
+        // Skip list items - they're handled by extractLists()
+        if(['LI','DT','DD','UL','OL'].includes(tagName)){
             return;
         }
 
-        // Flush accumulated list if any
-        if(listAccumulator.length && listBBox){
-            blocks.push({
-                type:'text',
-                text:listAccumulator.join('\n'),
-                bbox:{x:listBBox.x,y:listBBox.y,width:listBBox.width,height:listBBox.height},
-                fontSize:listFontSize,fontWeight:listFontWeight,fontFamily:listFontFamily,
-                headingLevel:listHeadingLevel
-            });
-            listAccumulator=[]; listBBox=null;
-        }
+        // Extract spans for regular text block
+        const spans = extractSpans(el);
 
         // Regular text block
         blocks.push({
             type:'text',
             text:text,
+            spans:spans,
             bbox:{x:bbox.x,y:bbox.y,width:bbox.width,height:bbox.height},
             fontSize,fontWeight,fontFamily,headingLevel
         });
         extractedTexts.push(text);
     });
 
-    // Flush any remaining list
-    if(listAccumulator.length && listBBox){
+    return blocks;
+}
+
+
+function extractLists() {
+    const blocks = [];
+    const lists = document.querySelectorAll("ul, ol");
+
+    for (const list of lists) {
+        const listItems = Array.from(list.querySelectorAll(":scope > li"));
+        if (listItems.length === 0) continue;
+
+        const items = [];
+        for (const li of listItems) {
+            const spans = extractSpans(li);
+            if (spans.length > 0) {
+                items.push(spans);
+            }
+        }
+
+        if (items.length === 0) continue;
+
+        const bbox = list.getBoundingClientRect();
+        if (bbox.width <= 0 || bbox.height <= 0) continue;
+
+        const ordered = list.tagName === "OL";
+
         blocks.push({
-            type:'text',
-            text:listAccumulator.join('\n'),
-            bbox:{x:listBBox.x,y:listBBox.y,width:listBBox.width,height:listBBox.height},
-            fontSize:listFontSize,fontWeight:listFontWeight,fontFamily:listFontFamily,
-            headingLevel:listHeadingLevel
+            type: "list",
+            items: items,
+            ordered: ordered,
+            level: 0,
+            bbox: {
+                x: bbox.x,
+                y: bbox.y,
+                width: bbox.width,
+                height: bbox.height
+            }
         });
     }
 
@@ -152,7 +215,8 @@ function extractImages() {
         blocks.push({
             type:'image',
             src:img.src,
-            bbox:{x:bbox.x,y:bbox.y,width:bbox.width,height:bbox.height}
+            bbox:{x:bbox.x,y:bbox.y,width:bbox.width,height:bbox.height},
+            alt: img.getAttribute('alt') || null
         });
     }
     
@@ -170,7 +234,8 @@ function extractTables() {
 
         rows.forEach(tr => {
             const cells = Array.from(tr.querySelectorAll("td, th"));
-            const row_texts = cells.map(cell => cell.innerText.trim()).filter(text => text.length > 0);
+            // Keep empty cells to maintain column alignment
+            const row_texts = cells.map(cell => cell.innerText.trim() || "");
             if(row_texts.length > 0) {
                 rows_data.push(row_texts);
             }
@@ -192,6 +257,40 @@ function extractTables() {
             }
         });
     });
+
+    return blocks;
+}
+
+function extractLinks() {
+    const blocks = [];
+    const links = document.querySelectorAll("a[href]");
+
+    for (const link of links) {
+        const href = link.getAttribute("href");
+        
+        // Only extract links starting with https://
+        if (!href || !href.startsWith("https://")) continue;
+        
+        const text = link.innerText?.trim();
+        if (!text) continue;
+        
+        const bbox = link.getBoundingClientRect();
+        if (bbox.width <= 0 || bbox.height <= 0) continue;
+        
+        const spans = extractSpans(link);
+        
+        blocks.push({
+            type: "link",
+            href: href,
+            spans: spans,
+            bbox: {
+                x: bbox.x,
+                y: bbox.y,
+                width: bbox.width,
+                height: bbox.height
+            }
+        });
+    }
 
     return blocks;
 }
